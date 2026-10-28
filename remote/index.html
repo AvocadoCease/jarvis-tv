@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>JARVIS Remote</title>
+<style>
+	@font-face { font-family: "Manrope"; font-weight: 300; src: url("/preview/fonts/manrope-300.woff") format("woff"); }
+	@font-face { font-family: "ShareTechMono"; src: url("/preview/fonts/sharetechmono-400.woff") format("woff"); }
+	:root { --cyan: #18e0ff; --red: #dc143c; --orange: #ffa21a; --ink: #00141a; --line: rgba(24, 224, 255, .45); }
+	* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+	body {
+		margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% 18%, #00222b 0, #000 60%);
+		color: var(--cyan); font-family: "ShareTechMono", ui-monospace, monospace; letter-spacing: .5px;
+		display: flex; justify-content: center; padding: 18px 14px 40px;
+	}
+	main { width: 100%; max-width: 420px; min-width: 0; }
+	header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+	h1 { margin: 0; font: 300 34px "Manrope", sans-serif; letter-spacing: 3px; }
+	h1 .r { color: var(--red); }
+	#status { font-size: 12px; text-align: right; color: #9ff4ff; }
+	#status .off { color: var(--red); }
+
+	/* Arc reactor. --level (0..1) is driven by JARVIS's voice in the script below. */
+	:root { --level: 0; }
+	.voice { display: flex; flex-direction: column; align-items: center; margin: 0 0 14px; }
+	.reactor { position: relative; width: 260px; height: 260px; display: grid; place-items: center; }
+	#wave { position: absolute; inset: 0; width: 260px; height: 260px; pointer-events: none; }
+	.ring { position: absolute; border-radius: 50%; pointer-events: none; transition: border-color .3s; }
+	.r1 { inset: 54px; border: 2px dashed rgba(24, 224, 255, .5); animation: spin 18s linear infinite; }
+	.r2 { inset: 40px; border: 1px solid rgba(24, 224, 255, .18); border-top-color: var(--cyan); border-bottom-color: var(--cyan);
+		animation: spin 11s linear infinite reverse; }
+	.r3 { inset: 26px; border: 3px solid transparent; border-left-color: rgba(24, 224, 255, .75); animation: spin 6s linear infinite; }
+	#mic {
+		position: relative; width: 132px; height: 132px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer;
+		background: radial-gradient(circle, rgba(225, 252, 255, calc(.55 + .45 * var(--level))) 0,
+			rgba(24, 224, 255, calc(.7 + .3 * var(--level))) 18%, rgba(24, 224, 255, .22) 40%, rgba(0, 20, 26, .92) 64%);
+		box-shadow: 0 0 calc(22px + 80px * var(--level)) rgba(24, 224, 255, calc(.35 + .55 * var(--level))),
+			inset 0 0 calc(16px + 30px * var(--level)) rgba(24, 224, 255, .45);
+		transform: scale(calc(1 + .07 * var(--level)));
+		color: var(--ink); font: 14px "ShareTechMono", monospace; letter-spacing: 2px;
+		animation: breathe 4.5s ease-in-out infinite;
+	}
+	@keyframes breathe { 50% { filter: brightness(1.18); } }
+	@keyframes spin { to { transform: rotate(360deg); } }
+
+	/* Moods */
+	.reactor.listening .r1 { animation-duration: 2.4s; border-color: rgba(232, 253, 255, .8); }
+	.reactor.listening .r2 { animation-duration: 3s; }
+	.reactor.listening .r3 { animation-duration: 1.4s; border-left-color: #e8fdff; }
+	.reactor.thinking .r2 { border-top-color: var(--orange); border-bottom-color: var(--orange); animation-duration: 1.6s; }
+	.reactor.thinking .r3 { border-left-color: var(--orange); animation-duration: .7s; }
+	.reactor.thinking #mic { animation-duration: 1s; }
+	.reactor.speaking .r1 { animation-duration: 7s; }
+	.reactor.speaking .r3 { animation-duration: 2.2s; }
+
+	/* Glow around the whole screen while JARVIS talks or listens */
+	#edge {
+		position: fixed; inset: 0; pointer-events: none; z-index: 20;
+		box-shadow: inset 0 0 calc(24px + 130px * var(--level)) rgba(24, 224, 255, calc(.06 + .4 * var(--level)));
+	}
+	#heard { min-height: 20px; margin-top: 14px; color: #e8fdff; font-size: 14px; text-align: center; }
+	#reply { min-height: 20px; margin-top: 4px; color: var(--orange); font-size: 14px; text-align: center; }
+	.wake { margin-top: 8px; font-size: 12px; color: #9ff4ff; display: flex; gap: 8px; align-items: center; }
+
+	form { display: flex; gap: 8px; margin: 0 0 18px; }
+	input[type=text] {
+		flex: 1; min-width: 0; background: rgba(0, 24, 32, .7); border: 1px solid var(--line); border-radius: 4px;
+		color: #e8fdff; font: 15px "ShareTechMono", monospace; padding: 11px 12px; outline: none;
+	}
+	input[type=text]:focus { border-color: var(--cyan); }
+
+	button.k {
+		background: rgba(0, 24, 32, .7); border: 1px solid var(--line); border-radius: 4px; color: var(--cyan);
+		font: 13px "ShareTechMono", monospace; letter-spacing: 1px; text-transform: uppercase;
+		padding: 0; height: 46px; cursor: pointer; transition: background .12s, color .12s;
+	}
+	button.k:active, button.k.flash { background: var(--cyan); color: var(--ink); }
+	button.k.red { border-color: rgba(220, 20, 60, .7); color: var(--red); }
+	button.k.red:active { background: var(--red); color: #fff; }
+	.grid { display: grid; gap: 8px; margin-bottom: 8px; }
+	.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+	.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px auto; width: 220px; }
+	.pad button.k { height: 62px; font-size: 18px; }
+	.pad .ok { border-radius: 50%; }
+	.label { font-size: 11px; color: #5fbccc; margin: 16px 0 6px; letter-spacing: 2px; }
+	.hint { font-size: 11px; color: #5fbccc; margin-top: 18px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1><span class="r">JARV</span>IS</h1>
+		<div id="status">connecting…</div>
+	</header>
+
+	<div id="edge"></div>
+	<div class="voice">
+		<div class="reactor" id="reactor">
+			<canvas id="wave" width="520" height="520"></canvas>
+			<div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+			<button id="mic" type="button" aria-label="Talk to JARVIS">TALK</button>
+		</div>
+		<div id="heard"></div>
+		<div id="reply"></div>
+		<label class="wake"><input type="checkbox" id="wake"> always listen for “Jarvis…”</label>
+	</div>
+
+	<form id="say">
+		<input type="text" id="text" placeholder="Type a command, e.g. volume up 5" autocomplete="off">
+		<button class="k" style="width:70px">Send</button>
+	</form>
+
+	<div class="grid g3">
+		<button class="k red" data-k="KEY_POWEROFF">Power off</button>
+		<button class="k" data-k="KEY_MUTE">Mute</button>
+		<button class="k" data-k="KEY_CONTENTS">Smart Hub</button>
+	</div>
+	<div class="grid g4">
+		<button class="k" data-k="KEY_VOLUP">Vol +</button>
+		<button class="k" data-k="KEY_VOLDOWN">Vol −</button>
+		<button class="k" data-k="KEY_CHUP">Ch +</button>
+		<button class="k" data-k="KEY_CHDOWN">Ch −</button>
+	</div>
+
+	<div class="pad">
+		<span></span><button class="k" data-k="KEY_UP">▲</button><span></span>
+		<button class="k" data-k="KEY_LEFT">◀</button><button class="k ok" data-k="KEY_ENTER">OK</button><button class="k" data-k="KEY_RIGHT">▶</button>
+		<button class="k" data-k="KEY_RETURN">↩</button><button class="k" data-k="KEY_DOWN">▼</button><button class="k" data-k="KEY_EXIT">Exit</button>
+	</div>
+
+	<div class="label">INPUTS</div>
+	<div class="grid g4">
+		<button class="k" data-k="KEY_TV">TV</button>
+		<button class="k" data-say="xbox">Xbox</button>
+		<button class="k" data-k="KEY_HDMI1">HDMI 1</button>
+		<button class="k" data-k="KEY_SOURCE">Source</button>
+	</div>
+
+	<div class="label">XBOX</div>
+	<div class="grid g4">
+		<button class="k" data-say="turn on the xbox">On</button>
+		<button class="k red" data-say="turn off the xbox">Off</button>
+		<button class="k" data-say="xbox home">Home</button>
+		<button class="k" data-say="xbox back">Back</button>
+	</div>
+	<div class="grid g4">
+		<button class="k" data-say="xbox left">◀</button>
+		<button class="k" data-say="xbox up">▲</button>
+		<button class="k" data-say="xbox down">▼</button>
+		<button class="k" data-say="xbox right">▶</button>
+	</div>
+	<div class="grid g4">
+		<button class="k" data-say="xbox a">A</button>
+		<button class="k" data-say="xbox b">B</button>
+		<button class="k" data-say="xbox pause">Pause</button>
+		<button class="k" data-say="xbox play">Play</button>
+	</div>
+
+	<div class="label">JARVIS</div>
+	<div class="grid g3">
+		<button class="k" data-say="brief me">Briefing</button>
+		<button class="k" data-say="what's the weather">Weather</button>
+		<button class="k" data-say="is the xbox on">Xbox?</button>
+	</div>
+
+	<div class="label">MAC</div>
+	<div class="grid g3">
+		<button class="k" data-say="show my screen">Cast screen</button>
+		<button class="k" data-say="stop casting">Stop cast</button>
+		<button class="k" data-say="show me a photo">Photo</button>
+	</div>
+
+	<p class="hint" id="hint"></p>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = (path) => fetch(path, { cache: "no-store" }).then((r) => r.json());
+
+// ---- status
+async function refresh() {
+	try {
+		const s = await api("/api/status");
+		$("status").innerHTML = s.tv
+			? `TV <span style="color:#e8fdff">${s.tv}</span>${s.casting ? " · casting" : ""}${s.xbox ? " · XBOX ON" : ""}`
+			: `<span class="off">TV OFFLINE</span>`;
+	} catch {
+		$("status").innerHTML = `<span class="off">MAC SERVER DOWN</span>`;
+	}
+}
+refresh();
+setInterval(refresh, 10000);
+
+// ---- buttons
+document.querySelectorAll("button[data-k]").forEach((b) =>
+	b.addEventListener("click", async () => {
+		b.classList.add("flash");
+		setTimeout(() => b.classList.remove("flash"), 150);
+		const r = await api(`/api/key?k=${encodeURIComponent(b.dataset.k)}`).catch(() => ({ ok: false, error: "no server" }));
+		if (!r.ok) { $("reply").textContent = r.error; }
+	})
+);
+document.querySelectorAll("button[data-say]").forEach((b) => b.addEventListener("click", () => command(b.dataset.say)));
+
+// ---- commands
+const synth = window.speechSynthesis;
+let voice = null;
+function pickVoice() {
+	const vs = synth ? synth.getVoices() : [];
+	voice = vs.find((v) => /Daniel/.test(v.name)) || vs.find((v) => v.lang === "en-GB") || vs.find((v) => /^en/.test(v.lang)) || null;
+}
+if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
+
+// JARVIS's voice is rendered on the Mac (tools/voice.py); the browser voice is a fallback.
+const player = new Audio();
+
+// ---- animation: the reactor and screen edge follow the loudness of JARVIS's voice
+const root = document.documentElement;
+const reactor = $("reactor");
+const canvas = $("wave");
+const g = canvas.getContext("2d");
+let audioCtx = null, analyser = null, freq = null, wave = null;
+let level = 0, mood = "idle";
+
+function setMood(m) {
+	mood = m;
+	reactor.classList.remove("idle", "listening", "thinking", "speaking");
+	reactor.classList.add(m);
+}
+
+// Browsers only allow audio analysis after a tap/click, so wire it up on the first one.
+function ensureAudio() {
+	if (audioCtx) { audioCtx.resume(); return; }
+	try {
+		audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+		analyser = audioCtx.createAnalyser();
+		analyser.fftSize = 256;
+		analyser.smoothingTimeConstant = 0.55;
+		audioCtx.createMediaElementSource(player).connect(analyser);
+		analyser.connect(audioCtx.destination);
+		freq = new Uint8Array(analyser.frequencyBinCount);
+		wave = new Uint8Array(analyser.fftSize);
+	} catch { audioCtx = null; }
+}
+document.addEventListener("pointerdown", ensureAudio, { once: true });
+document.addEventListener("keydown", ensureAudio, { once: true });
+
+player.addEventListener("playing", () => setMood("speaking"));
+["ended", "pause", "error"].forEach((e) => player.addEventListener(e, () => setMood(listening ? "listening" : "idle")));
+
+function frame(t) {
+	requestAnimationFrame(frame);
+	let target = 0;
+	if (mood === "speaking" && analyser && !player.paused) {
+		analyser.getByteTimeDomainData(wave);
+		let sum = 0;
+		for (let i = 0; i < wave.length; i++) { const x = (wave[i] - 128) / 128; sum += x * x; }
+		target = Math.min(1, Math.sqrt(sum / wave.length) * 4.5);
+	} else if (synth && synth.speaking) {
+		target = 0.35 + 0.35 * Math.random();          // browser-voice fallback: no audio data
+	} else if (mood === "listening") {
+		target = 0.22 + 0.08 * Math.sin(t / 300);
+	} else if (mood === "thinking") {
+		target = 0.12 + 0.06 * Math.sin(t / 120);
+	}
+	level += (target - level) * (target > level ? 0.45 : 0.1);   // fast attack, slow release
+	root.style.setProperty("--level", level.toFixed(3));
+	draw(t);
+}
+
+// Circular sound-wave ring around the reactor
+function draw(t) {
+	const W = canvas.width, c = W / 2;
+	g.clearRect(0, 0, W, W);
+	const bars = 72, r0 = 150;
+	g.lineCap = "round";
+	if (mood === "speaking" && analyser) {
+		analyser.getByteFrequencyData(freq);
+		for (let i = 0; i < bars; i++) {
+			const v = freq[Math.floor((i < bars / 2 ? i : bars - i) * freq.length / bars * 0.9)] / 255;
+			const a = (i / bars) * Math.PI * 2 - Math.PI / 2;
+			const len = 6 + v * 70;
+			g.strokeStyle = `rgba(24, 224, 255, ${0.25 + v * 0.75})`;
+			g.lineWidth = 5;
+			g.beginPath();
+			g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
+			g.lineTo(c + Math.cos(a) * (r0 + len), c + Math.sin(a) * (r0 + len));
+			g.stroke();
+		}
+	} else if (mood === "listening" || mood === "thinking") {
+		const color = mood === "listening" ? "232, 253, 255" : "255, 162, 26";
+		for (let i = 0; i < bars; i++) {
+			const a = (i / bars) * Math.PI * 2 + t / (mood === "listening" ? 900 : 300);
+			const on = Math.sin(i * 0.9 + t / 160) > 0.2;
+			g.strokeStyle = `rgba(${color}, ${on ? 0.7 : 0.15})`;
+			g.lineWidth = 4;
+			g.beginPath();
+			g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
+			g.lineTo(c + Math.cos(a) * (r0 + 10), c + Math.sin(a) * (r0 + 10));
+			g.stroke();
+		}
+	}
+}
+requestAnimationFrame(frame);
+
+// Preview the moods without speaking: /remote?demo=speaking | listening | thinking
+const demo = new URLSearchParams(location.search).get("demo");
+if (demo) {
+	setMood(demo);
+	if (demo === "speaking") {
+		analyser = { getByteTimeDomainData: (a) => { for (let i = 0; i < a.length; i++) a[i] = 128 + 60 * Math.sin(i / 3 + performance.now() / 70); },
+			getByteFrequencyData: (a) => { for (let i = 0; i < a.length; i++) a[i] = 120 + 120 * Math.abs(Math.sin(i / 4 + performance.now() / 200)); } };
+		freq = new Uint8Array(128); wave = new Uint8Array(256);
+		Object.defineProperty(player, "paused", { get: () => false });
+	}
+}
+
+function speak(text) {
+	ensureAudio();
+	player.pause();
+	player.src = `/api/tts?text=${encodeURIComponent(text)}`;
+	player.play().catch(() => {
+		if (!synth) return;
+		const u = new SpeechSynthesisUtterance(text);
+		if (voice) u.voice = voice;
+		synth.cancel();
+		synth.speak(u);
+	});
+}
+
+// Let a short "one moment" finish before the answer starts.
+function speakAfter(text) {
+	if (player.paused || player.ended) return speak(text);
+	player.addEventListener("ended", () => speak(text), { once: true });
+}
+
+async function command(text) {
+	$("heard").textContent = `› ${text}`;
+	$("reply").textContent = "…";
+	setMood("thinking");
+	// Questions go to Claude and take a few seconds: acknowledge them so it doesn't feel dead.
+	let answered = false;
+	const ack = setTimeout(() => { if (!answered) speak(["One moment.", "Let me check.", "Checking now."][Math.floor(Math.random() * 3)]); }, 1500);
+	try {
+		const r = await api(`/api/command?from=remote&text=${encodeURIComponent(text)}`);
+		answered = true;
+		clearTimeout(ack);
+		$("reply").textContent = r.reply;
+		speakAfter(r.reply);
+	} catch {
+		answered = true;
+		clearTimeout(ack);
+		$("reply").textContent = "I can't reach the Mac.";
+		setMood("idle");
+	}
+	refresh();
+}
+
+$("say").addEventListener("submit", (e) => {
+	e.preventDefault();
+	const t = $("text").value.trim();
+	if (t) { command(t); $("text").value = ""; }
+});
+
+// ---- follow-up news (e.g. "the Xbox didn't wake"): show and say it
+let lastEvent = null;
+async function pollEvents() {
+	try {
+		const { events } = await api("/api/events");
+		const fresh = lastEvent === null ? [] : events.filter((e) => e.id > lastEvent);
+		if (events.length) lastEvent = Math.max(lastEvent || 0, ...events.map((e) => e.id));
+		else if (lastEvent === null) lastEvent = 0;
+		for (const e of fresh) {
+			if (e.kind !== "notice") continue;
+			const text = e.text.replace(/^\u203a\s*/, "");
+			$("reply").textContent = text;
+			speak(text);
+		}
+	} catch {}
+}
+pollEvents();
+setInterval(pollEvents, 3000);
+
+// ---- voice
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+let listening = false;
+
+if (!SR || !window.isSecureContext) {
+	$("mic").disabled = true;
+	$("mic").textContent = "NO MIC";
+	$("wake").disabled = true;
+	$("hint").innerHTML = !SR
+		? "This browser has no speech recognition. Use Chrome or Safari, or type commands above."
+		: `Voice needs a secure page. On your Mac open <b>http://localhost/remote</b> in Chrome to talk to JARVIS. Buttons and typing work here.`;
+} else {
+	rec = new SR();
+	rec.lang = navigator.language || "en-US";
+	rec.interimResults = true;
+	rec.continuous = false;
+
+	rec.onresult = (e) => {
+		if (!player.paused) return;  // ignore JARVIS hearing its own voice
+		const res = e.results[e.results.length - 1];
+		const text = res[0].transcript.trim();
+		$("heard").textContent = `› ${text}`;
+		if (!res.isFinal) return;
+		if ($("wake").checked) {
+			const m = text.match(/\bjarvis\b[,.!]?\s*(.*)$/i);
+			if (m && m[1]) command(m[1]);
+			else if (m) { $("reply").textContent = "Yes?"; speak("Yes?"); }
+		} else {
+			command(text);
+		}
+	};
+	rec.onstart = () => { listening = true; $("mic").textContent = "LISTENING"; if (mood !== "speaking") setMood("listening"); };
+	rec.onend = () => {
+		listening = false;
+		$("mic").textContent = "TALK";
+		if (mood === "listening") setMood("idle");
+		if ($("wake").checked) setTimeout(() => { try { rec.start(); } catch {} }, 300);
+	};
+	rec.onerror = (e) => { if (e.error !== "no-speech" && e.error !== "aborted") $("reply").textContent = `mic: ${e.error}`; };
+
+	$("mic").addEventListener("click", () => { listening ? rec.stop() : rec.start(); });
+	$("wake").addEventListener("change", () => {
+		rec.continuous = $("wake").checked;
+		if ($("wake").checked && !listening) rec.start();
+		if (!$("wake").checked && listening) rec.stop();
+	});
+	$("hint").innerHTML = "Tap the reactor and speak: “volume up 5”, “switch to HDMI 2”, “what’s on my calendar tomorrow?”, “any emails from Sam?”.";
+}
+</script>
+</body>
+</html>

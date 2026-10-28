@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget>
+	<cpname>Lounge</cpname>
+	<cpauthjs></cpauthjs>
+	<ThumbIcon>img/app-106x87.png</ThumbIcon>
+	<BigThumbIcon>img/app-115x95.png</BigThumbIcon>
+	<ListIcon>img/app-85x70.png</ListIcon>
+	<BigListIcon>img/app-95x78.png</BigListIcon>
+	<category>lifestyle</category>
+	<autoUpdate>n</autoUpdate>
+	<ver>0.400</ver>
+	<mgrver>3.500</mgrver>
+	<fullwidget>y</fullwidget>
+	<type>user</type>
+	<srcctl>y</srcctl>
+	<ticker>n</ticker>
+	<childlock>n</childlock>
+	<videomute>n</videomute>
+	<audiomute>n</audiomute>
+	<dcont>y</dcont>
+	<widgetname>Lounge</widgetname>
+	<description>A quiet home screen: a photograph, the time and the few things you use.</description>
+	<width>1280</width>
+	<height>720</height>
+	<author>
+		<name>Lounge</name>
+	</author>
+</widget>

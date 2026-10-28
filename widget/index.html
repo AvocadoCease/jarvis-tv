@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<title>Lounge</title>
+	<!-- Samsung 2012 (Orsay) widget APIs. These only exist on the TV; the preview stubs them. -->
+	<script type="text/javascript" language="javascript" src="$MANAGER_WIDGET/Common/API/Widget.js"></script>
+	<script type="text/javascript" language="javascript" src="$MANAGER_WIDGET/Common/API/TVKeyValue.js"></script>
+	<script type="text/javascript" language="javascript" src="$MANAGER_WIDGET/Common/API/Plugin.js"></script>
+	<link rel="stylesheet" type="text/css" href="css/style.css">
+	<link rel="stylesheet" type="text/css" href="css/jarvis.css">
+	<script type="text/javascript" language="javascript" src="js/config.js"></script>
+	<script type="text/javascript" language="javascript" src="js/diag.js"></script>
+	<script type="text/javascript" language="javascript" src="js/main.js"></script>
+</head>
+<body onload="Lounge.start();">
+	<a href="javascript:void(0);" id="anchor"></a>
+
+	<!-- Everything is laid out at 1280x720 inside #stage, which is zoomed to fit the screen. -->
+	<div id="stage">
+		<img id="bg-a" class="bg" alt="">
+		<img id="bg-b" class="bg" alt="">
+		<div id="shade"></div>
+
+		<!-- Jarvis theme layer -->
+		<div id="jv">
+			<img id="jv-bg" src="img/jarvis-bg.jpg" alt="">
+			<img id="jv-frame" src="img/jarvis-frame.png" alt="">
+			<img id="jv-eyes" src="img/jarvis-eyes.png" alt="">
+			<img id="jv-glow" src="img/jarvis-glow.png" alt="">
+			<img id="jv-ring" src="img/jarvis-ring.png" alt="">
+			<div id="jv-scan"></div>
+			<div id="jv-log"></div>
+			<div id="jv-title"><span class="red">JARV</span>IS</div>
+			<div id="jv-name"><div class="red">R</div><div class="red">U</div><div class="red">F</div><div>A</div><div>R</div><div>O</div></div>
+			<div id="jv-caret"></div>
+			<div id="jv-tree"></div>
+			<div id="jv-clockblock">
+				<div id="jv-clockinner"><span id="jv-time"></span><span id="jv-side"><span id="jv-day"></span> <span id="jv-month"></span><br><span id="jv-weekday"></span></span></div>
+			</div>
+			<div id="jv-status"></div>
+			<div id="jv-brief"><div class="title" id="jv-brief-title"></div><div id="jv-brief-body"></div><div class="hint">Press any button to close</div></div>
+		</div>
+
+		<div id="ui">
+			<div id="clock"><span id="time"></span><span id="ampm"></span></div>
+			<div id="date"></div>
+			<div id="greeting"></div>
+
+			<div id="dock">
+				<div class="tile" data-action="tv">
+					<img class="icon light" src="img/icon-tv.png" alt=""><img class="icon dark" src="img/icon-tv-dark.png" alt="">
+					<img class="icon cyan" src="img/icon-tv-cyan.png" alt=""><img class="icon ink" src="img/icon-tv-ink.png" alt="">
+					<div class="label">Watch TV</div>
+				</div>
+				<div class="tile" data-action="frame">
+					<img class="icon light" src="img/icon-frame.png" alt=""><img class="icon dark" src="img/icon-frame-dark.png" alt="">
+					<img class="icon cyan" src="img/icon-frame-cyan.png" alt=""><img class="icon ink" src="img/icon-frame-ink.png" alt="">
+					<div class="label">Frame</div>
+				</div>
+				<div class="tile" data-action="hub">
+					<img class="icon light" src="img/icon-hub.png" alt=""><img class="icon dark" src="img/icon-hub-dark.png" alt="">
+					<img class="icon cyan" src="img/icon-hub-cyan.png" alt=""><img class="icon ink" src="img/icon-hub-ink.png" alt="">
+					<div class="label">Smart Hub</div>
+				</div>
+				<div class="tile" data-action="settings">
+					<img class="icon light" src="img/icon-settings.png" alt=""><img class="icon dark" src="img/icon-settings-dark.png" alt="">
+					<img class="icon cyan" src="img/icon-settings-cyan.png" alt=""><img class="icon ink" src="img/icon-settings-ink.png" alt="">
+					<div class="label">Settings</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="settings">
+			<div class="title">Settings</div>
+			<div class="rows">
+				<div class="row" data-setting="theme">
+					<div class="name">Theme</div>
+					<div class="value" id="theme-value"></div>
+					<span class="chev left"></span><span class="chev right"></span>
+				</div>
+				<div class="row tall" data-setting="wall">
+					<div class="name">Wallpaper</div>
+					<img id="wall-thumb" alt="">
+					<div class="value" id="wall-value"></div>
+					<span class="chev left"></span><span class="chev right"></span>
+				</div>
+				<div class="row" data-setting="clock">
+					<div class="name">Clock</div>
+					<div class="value" id="clock-value"></div>
+					<span class="chev left"></span><span class="chev right"></span>
+				</div>
+				<div class="row" data-setting="frame">
+					<div class="name">Frame changes photo</div>
+					<div class="value" id="frame-value"></div>
+					<span class="chev left"></span><span class="chev right"></span>
+				</div>
+				<div class="row" data-setting="screen">
+					<div class="name">Screen size</div>
+					<div class="value" id="screen-value"></div>
+					<span class="chev left"></span><span class="chev right"></span>
+				</div>
+				<div class="row" data-setting="diag">
+					<div class="name">Diagnostics</div>
+					<div class="value" id="diag-value">Run</div>
+				</div>
+				<div class="row done" data-setting="done">
+					<div class="value">Done</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="frameclock"></div>
+		<div id="credit"></div>
+		<div id="toast"></div>
+	</div>
+</body>
+</html>

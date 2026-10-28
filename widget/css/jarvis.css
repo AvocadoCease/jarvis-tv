@@ -1,0 +1,335 @@
+/* Jarvis theme, after naumanafsar/jarvis-live-wallpaper (Conky).
+   Cyan HUD on the Iron Man artwork, live stats tree on the right.
+   Active when <body> has class "theme-jarvis". Same 2012 WebKit rules as style.css. */
+
+@font-face { font-family: "ShareTechMono"; font-weight: 400; src: url("../fonts/sharetechmono-400.woff") format("woff"); }
+
+#jv { display: none; }
+.theme-jarvis #jv { display: block; }
+.theme-jarvis .bg,
+.theme-jarvis #shade,
+.theme-jarvis #clock,
+.theme-jarvis #date,
+.theme-jarvis #greeting,
+.theme-jarvis #credit,
+.theme-jarvis #frameclock { display: none; }
+.theme-jarvis #stage { background: #000; }
+
+#jv-bg {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+}
+#jv-scan {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+	background: url("../img/jarvis-scan.png") repeat;
+}
+
+/* Arc reactor: centre (626, 393) in the 1280x720 artwork */
+@-webkit-keyframes jvpulse {
+	from { opacity: 0.3; }
+	to { opacity: 0.95; }
+}
+@-webkit-keyframes jvspin {
+	from { -webkit-transform: rotate(0deg); }
+	to { -webkit-transform: rotate(360deg); }
+}
+#jv-glow {
+	position: absolute;
+	left: 516px;
+	top: 283px;
+	width: 220px;
+	height: 220px;
+	-webkit-animation: jvpulse 2.6s ease-in-out infinite alternate;
+}
+#jv-ring {
+	position: absolute;
+	left: 541px;
+	top: 308px;
+	width: 170px;
+	height: 170px;
+	opacity: 0.85;
+	-webkit-animation: jvspin 30s linear infinite;
+}
+
+/* While JARVIS speaks: glowing frame round the screen, reactor works harder */
+@-webkit-keyframes jvframe {
+	from { opacity: 0.35; }
+	to { opacity: 1; }
+}
+#jv-frame {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+	opacity: 0;
+	-webkit-transition: opacity 0.4s ease;
+}
+.speaking #jv-frame { -webkit-animation: jvframe 0.55s ease-in-out infinite alternate; }
+/* Eyes: the suit's eye slits flare with the voice. Box matches EYES_BOX in make_jarvis_assets.py */
+@-webkit-keyframes jveyes {
+	0% { opacity: 0.45; }
+	30% { opacity: 1; }
+	55% { opacity: 0.7; }
+	100% { opacity: 0.95; }
+}
+#jv-eyes {
+	position: absolute;
+	left: 560px;
+	top: 125px;
+	width: 140px;
+	height: 55px;
+	opacity: 0;
+	-webkit-transition: opacity 0.5s ease;
+}
+.speaking #jv-eyes { -webkit-animation: jveyes 0.35s ease-in-out infinite alternate; }
+.speaking #jv-glow { -webkit-animation: jvpulse 0.4s ease-in-out infinite alternate; }
+.speaking #jv-ring { -webkit-animation: jvspin 5s linear infinite; }
+
+/* Title, top right */
+#jv-title {
+	position: absolute;
+	right: 54px;
+	top: 14px;
+	font-family: "Manrope", Helvetica, Arial, sans-serif;
+	font-weight: 300;
+	font-size: 40px;
+	letter-spacing: 3px;
+	color: #18e0ff;
+}
+#jv-title .red,
+#jv-name .red { color: #dc143c; }
+
+/* Name down the left edge, one letter per line, in the JARVIS title font */
+#jv-name {
+	position: absolute;
+	left: 36px;
+	top: 116px;
+	width: 60px;
+	font-family: "Manrope", Helvetica, Arial, sans-serif;
+	font-weight: 300;
+	font-size: 56px;
+	line-height: 70px;
+	text-align: center;
+	color: #18e0ff;
+	-webkit-transition: opacity 0.6s ease;
+}
+#jv-caret {
+	position: absolute;
+	right: 100px;
+	top: 66px;
+	width: 0;
+	height: 0;
+	border-left: 5px solid transparent;
+	border-right: 5px solid transparent;
+	border-bottom: 7px solid #18e0ff;
+}
+
+/* Stats tree: right-aligned rows hang off vertical rails, like the Conky original */
+#jv-tree {
+	position: absolute;
+	right: 40px;
+	top: 76px;
+	width: 380px;
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-size: 13px;
+	line-height: 17px;
+	color: #18e0ff;
+	text-align: right;
+}
+#jv-tree .g {
+	border-right: 1px solid rgba(24, 224, 255, 0.55);
+	margin-right: 18px;
+	margin-bottom: 3px;
+	padding-top: 2px;
+}
+#jv-tree .r { white-space: nowrap; }
+#jv-tree .r:after {
+	content: "";
+	display: inline-block;
+	width: 12px;
+	height: 1px;
+	margin-left: 6px;
+	background: rgba(24, 224, 255, 0.75);
+	vertical-align: middle;
+}
+#jv-tree .h { color: #9ff4ff; }
+#jv-tree .b { color: #18e0ff; }
+#jv-tree .hot .b { color: #dc143c; }
+#jv-tree .v { color: #e8fdff; }
+#jv-tree .off .v { color: #dc143c; }
+
+/* Clock: big time, orange day, month and weekday stacked to the right */
+#jv-clockblock {
+	position: absolute;
+	left: 0;
+	top: 474px;
+	width: 1280px;
+	text-align: center;
+	color: #18e0ff;
+}
+#jv-clockinner {
+	display: inline-block;
+	text-align: left;
+	white-space: nowrap;
+}
+#jv-time {
+	display: inline-block;
+	vertical-align: top;
+	font-family: "Manrope", Helvetica, Arial, sans-serif;
+	font-weight: 300;
+	font-size: 116px;
+	line-height: 112px;
+	letter-spacing: -3px;
+	text-shadow: 0 0 18px rgba(24, 224, 255, 0.35);
+}
+#jv-side {
+	display: inline-block;
+	vertical-align: top;
+	margin-left: 18px;
+	margin-top: 10px;
+	font-family: "Manrope", Helvetica, Arial, sans-serif;
+	font-weight: 300;
+}
+#jv-day { font-size: 36px; color: #ffa21a; }
+#jv-month { font-size: 24px; }
+#jv-weekday { font-size: 54px; line-height: 64px; }
+
+#jv-status {
+	position: absolute;
+	left: 0;
+	top: 592px;
+	width: 1280px;
+	text-align: center;
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-size: 14px;
+	color: #e8fdff;
+	letter-spacing: 1px;
+}
+#jv-status .k { color: #ffa21a; margin-left: 22px; margin-right: 8px; }
+#jv-status .off { color: #dc143c; }
+
+/* Briefing panel: lines type in one by one while the Mac speaks */
+#jv-brief {
+	position: absolute;
+	left: 124px;
+	top: 120px;
+	width: 470px;
+	padding: 18px 22px 16px;
+	background: rgba(0, 8, 12, 0.9);
+	border: 1px solid rgba(24, 224, 255, 0.6);
+	border-left: 3px solid #18e0ff;
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-size: 17px;
+	line-height: 25px;
+	color: #e8fdff;
+	opacity: 0;
+	visibility: hidden;
+	-webkit-transition: opacity 0.4s ease;
+}
+#jv-brief.show { opacity: 1; visibility: visible; }
+#jv-brief .title { color: #ffa21a; font-size: 13px; letter-spacing: 3px; margin-bottom: 10px; }
+#jv-brief .line { margin-bottom: 6px; opacity: 0; -webkit-transition: opacity 0.5s ease; }
+#jv-brief .line.in { opacity: 1; }
+#jv-brief .hint { color: #18e0ff; font-size: 11px; letter-spacing: 1px; opacity: 0.6; margin-top: 10px; }
+
+/* Boot log, top left */
+#jv-log {
+	position: absolute;
+	left: 40px;
+	top: 30px;
+	width: 420px;
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-size: 13px;
+	line-height: 19px;
+	color: #18e0ff;
+	opacity: 0.85;
+}
+#jv-log .t { color: #ffa21a; margin-right: 8px; }
+
+/* Dock: slim HUD buttons, centred under the clock */
+.theme-jarvis #dock {
+	left: 319px;
+	top: 638px;
+	width: 660px;
+	height: 60px;
+}
+.theme-jarvis .tile {
+	width: 148px;
+	height: 46px;
+	margin-right: 14px;
+	border-radius: 3px;
+	background: rgba(0, 24, 32, 0.6);
+	border: 1px solid rgba(24, 224, 255, 0.6);
+	color: #18e0ff;
+}
+.theme-jarvis .tile .light,
+.theme-jarvis .tile .dark,
+.theme-jarvis .tile.focus .light,
+.theme-jarvis .tile.focus .dark { display: none; }
+.theme-jarvis .tile .cyan { display: block; }
+.theme-jarvis .tile .icon {
+	left: 13px;
+	top: 11px;
+	width: 24px;
+	height: 24px;
+}
+.theme-jarvis .tile .label {
+	left: 46px;
+	top: 14px;
+	bottom: auto;
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-weight: 400;
+	font-size: 15px;
+	letter-spacing: 1px;
+	text-transform: uppercase;
+}
+.theme-jarvis .tile.focus {
+	background: #18e0ff;
+	border-color: #18e0ff;
+	color: #00141a;
+	-webkit-transform: scale(1.06);
+}
+.theme-jarvis .tile.focus .cyan { display: none; }
+.theme-jarvis .tile.focus .ink { display: block; }
+
+/* Settings sheet */
+.theme-jarvis #settings {
+	background: rgba(0, 10, 14, 0.92);
+	border-left: 1px solid rgba(24, 224, 255, 0.6);
+	color: #18e0ff;
+}
+.theme-jarvis #settings .title {
+	font-family: "ShareTechMono", "Courier New", monospace;
+	font-weight: 400;
+	letter-spacing: 4px;
+	text-transform: uppercase;
+}
+.theme-jarvis #settings .row { border-radius: 3px; border: 1px solid transparent; }
+.theme-jarvis #settings .row.focus { background: rgba(24, 224, 255, 0.1); border-color: rgba(24, 224, 255, 0.6); }
+.theme-jarvis #settings .row.done.focus { background: #18e0ff; color: #00141a; }
+.theme-jarvis #settings .name { font-family: "ShareTechMono", "Courier New", monospace; text-transform: uppercase; letter-spacing: 1px; }
+.theme-jarvis .chev { border-color: #18e0ff; }
+
+/* Frame mode: just the suit, the reactor and the clock */
+.theme-jarvis.frame #ui { opacity: 0; }
+.theme-jarvis #jv-tree,
+.theme-jarvis #jv-log,
+.theme-jarvis #jv-status,
+.theme-jarvis #jv-title,
+.theme-jarvis #jv-caret { -webkit-transition: opacity 0.6s ease; }
+.theme-jarvis.frame #jv-tree,
+.theme-jarvis.frame #jv-log,
+.theme-jarvis.frame #jv-status,
+.theme-jarvis.frame #jv-title,
+.theme-jarvis.frame #jv-caret { opacity: 0; }
+
+#toast { font-family: inherit; }
+.theme-jarvis #toast { color: #18e0ff; font-family: "ShareTechMono", "Courier New", monospace; }

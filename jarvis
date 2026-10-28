@@ -1,0 +1,46 @@
+#!/bin/bash
+# Control the JARVIS server (macOS LaunchAgent com.jarvis-tv.server, set up by install.sh).
+#
+#   ./jarvis status     is it running?
+#   ./jarvis restart    after changing code in tools/
+#   ./jarvis stop       stop it (stays stopped until start, or next login)
+#   ./jarvis start
+#   ./jarvis log        follow the log (Ctrl-C to leave)
+#   ./jarvis disable    stop it and don't start at login any more
+#   ./jarvis enable     undo disable
+
+LABEL=com.jarvis-tv.server
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+LOG="$HOME/Library/Logs/jarvis-tv/server.log"
+
+loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+case "$1" in
+  start)
+    loaded || launchctl bootstrap "$DOMAIN" "$PLIST"
+    launchctl kickstart "$DOMAIN/$LABEL" && echo "JARVIS started" ;;
+  stop)
+    loaded && launchctl bootout "$DOMAIN/$LABEL" && echo "JARVIS stopped" || echo "JARVIS wasn't running" ;;
+  restart)
+    if loaded; then launchctl kickstart -k "$DOMAIN/$LABEL"; else launchctl bootstrap "$DOMAIN" "$PLIST"; fi
+    echo "JARVIS restarted" ;;
+  status)
+    if loaded; then
+      pid=$(launchctl print "$DOMAIN/$LABEL" | awk '/^\tpid = /{print $3}')
+      echo "JARVIS is loaded${pid:+, running as pid $pid}"
+      curl -s --max-time 5 http://127.0.0.1/api/status && echo
+    else
+      echo "JARVIS is not running"
+    fi ;;
+  log)
+    tail -n 40 -f "$LOG" ;;
+  disable)
+    loaded && launchctl bootout "$DOMAIN/$LABEL"
+    launchctl disable "$DOMAIN/$LABEL" && echo "JARVIS disabled (won't start at login)" ;;
+  enable)
+    launchctl enable "$DOMAIN/$LABEL" && launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null
+    echo "JARVIS enabled" ;;
+  *)
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

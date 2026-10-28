@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Local speech-to-text for the Mac app (whisper.cpp's server on 127.0.0.1:8178). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>com.jarvis-tv.whisper</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__WHISPER__</string>
+		<string>-m</string><string>__ROOT__/mac-app/models/ggml-large-v3-turbo-q5_0.bin</string>
+		<string>--host</string><string>127.0.0.1</string>
+		<string>--port</string><string>8178</string>
+		<string>-l</string><string>en</string>
+		<string>-t</string><string>8</string>
+		<string>-nt</string>
+		<string>-sns</string>
+		<string>--prompt</string><string>__PROMPT__</string>
+	</array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ThrottleInterval</key><integer>10</integer>
+	<key>StandardOutPath</key><string>__HOME__/Library/Logs/jarvis-tv/whisper.log</string>
+	<key>StandardErrorPath</key><string>__HOME__/Library/Logs/jarvis-tv/whisper.log</string>
+</dict>
+</plist>

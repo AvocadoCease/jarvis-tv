@@ -1,0 +1,24 @@
+{
+  "user_name": "Sam",
+  "place": "London",
+  "latitude": 51.51,
+  "longitude": -0.13,
+  "timezone": "Europe/London",
+  "whisper_prompt": "Sam, JARVIS, Xbox, Claude.",
+  "tv": {
+    "mac": "aa:bb:cc:dd:ee:ff",
+    "model": "UA46ES7500",
+    "name": "Living room TV"
+  },
+  "xbox": {
+    "mac": "",
+    "ip": "",
+    "live_id": "",
+    "hdmi": 3
+  },
+  "claude_config_dir": "",
+  "t3": {
+    "provider": "",
+    "model": ""
+  }
+}

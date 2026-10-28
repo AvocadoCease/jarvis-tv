@@ -1,0 +1,248 @@
+/* Lounge for Samsung 2012 (Orsay WebKit).
+   No flexbox, calc, CSS variables or large blurs: positions are absolute and
+   effects come from pre-rendered PNGs. Animate only opacity and transforms. */
+
+@font-face { font-family: "Manrope"; font-weight: 300; src: url("../fonts/manrope-300.woff") format("woff"); }
+@font-face { font-family: "Manrope"; font-weight: 400; src: url("../fonts/manrope-400.woff") format("woff"); }
+@font-face { font-family: "Manrope"; font-weight: 600; src: url("../fonts/manrope-600.woff") format("woff"); }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	background: #000;
+	color: #fff;
+	font-family: "Manrope", Helvetica, Arial, sans-serif;
+}
+
+/* Authored at 1280x720; main.js zooms this to the TV's real app size. */
+#stage {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+	overflow: hidden;
+	background: #0b0d10;
+}
+
+#anchor { position: absolute; left: -100px; top: -100px; }
+
+/* Background: two layers that crossfade */
+.bg {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+	opacity: 0;
+	-webkit-transition: opacity 1.4s ease;
+}
+.bg.on { opacity: 1; }
+
+#shade {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 1280px;
+	height: 720px;
+	background: url("../img/shade.png") no-repeat;
+	-webkit-transition: opacity 0.8s ease;
+}
+
+#ui { -webkit-transition: opacity 0.6s ease; }
+
+/* Clock */
+#clock {
+	position: absolute;
+	left: 84px;
+	top: 58px;
+	font-weight: 300;
+	font-size: 136px;
+	line-height: 1;
+	letter-spacing: -5px;
+	text-shadow: 0 2px 18px rgba(0, 0, 0, 0.25);
+}
+#ampm {
+	font-size: 34px;
+	font-weight: 400;
+	letter-spacing: 0;
+	margin-left: 12px;
+	opacity: 0.85;
+}
+#date {
+	position: absolute;
+	left: 90px;
+	top: 214px;
+	font-size: 29px;
+	font-weight: 400;
+	opacity: 0.9;
+}
+#greeting {
+	position: absolute;
+	left: 90px;
+	top: 258px;
+	font-size: 21px;
+	font-weight: 400;
+	opacity: 0.6;
+}
+
+/* Dock */
+#dock {
+	position: absolute;
+	left: 84px;
+	top: 512px;
+	height: 140px;
+	width: 1120px;
+}
+.tile {
+	float: left;
+	position: relative;
+	width: 170px;
+	height: 132px;
+	margin-right: 22px;
+	border-radius: 24px;
+	background: rgba(255, 255, 255, 0.13);
+	border: 1px solid rgba(255, 255, 255, 0.16);
+	-webkit-transition: -webkit-transform 0.18s ease, background-color 0.18s ease;
+}
+.tile .icon {
+	position: absolute;
+	left: 24px;
+	top: 22px;
+	width: 48px;
+	height: 48px;
+}
+.tile .dark, .tile .cyan, .tile .ink { display: none; }
+.tile .label {
+	position: absolute;
+	left: 26px;
+	bottom: 20px;
+	font-size: 20px;
+	font-weight: 600;
+}
+.tile.focus {
+	background: #fff;
+	border-color: #fff;
+	color: #14161a;
+	-webkit-transform: scale(1.08);
+}
+.tile.focus .light { display: none; }
+.tile.focus .dark { display: block; }
+
+/* Settings sheet */
+#settings {
+	position: absolute;
+	right: 0;
+	top: 0;
+	width: 470px;
+	height: 720px;
+	background: rgba(12, 14, 18, 0.9);
+	-webkit-transform: translateX(480px);
+	-webkit-transition: -webkit-transform 0.3s ease;
+}
+#settings.open { -webkit-transform: translateX(0); }
+#settings .title {
+	position: absolute;
+	left: 44px;
+	top: 44px;
+	font-size: 34px;
+	font-weight: 600;
+}
+#settings .rows {
+	position: absolute;
+	left: 24px;
+	top: 112px;
+	width: 422px;
+}
+#settings .row {
+	position: relative;
+	height: 84px;
+	margin-bottom: 10px;
+	border-radius: 18px;
+}
+#settings .row.tall { height: 110px; }
+#settings .row.done { height: 64px; margin-top: 18px; }
+#settings .row.hidden { display: none; }
+#settings .row.focus { background: rgba(255, 255, 255, 0.14); }
+#settings .row.done.focus { background: #fff; color: #14161a; }
+#settings .name {
+	position: absolute;
+	left: 20px;
+	top: 14px;
+	font-size: 17px;
+	opacity: 0.6;
+}
+#settings .value {
+	position: absolute;
+	left: 20px;
+	top: 40px;
+	font-size: 25px;
+	font-weight: 600;
+}
+#settings .row.done .value { top: 17px; left: 0; width: 422px; text-align: center; }
+#settings .row.tall .value { left: 164px; top: 54px; }
+#wall-thumb {
+	position: absolute;
+	left: 20px;
+	top: 38px;
+	width: 112px;
+	height: 63px;
+	border-radius: 8px;
+}
+
+/* Chevrons drawn with borders; only visible on the focused row */
+.chev {
+	position: absolute;
+	top: 50px;
+	width: 10px;
+	height: 10px;
+	border-top: 3px solid #fff;
+	border-right: 3px solid #fff;
+	opacity: 0;
+}
+.chev.left { right: 52px; -webkit-transform: rotate(-135deg); }
+.chev.right { right: 24px; -webkit-transform: rotate(45deg); }
+#settings .row.tall .chev { top: 64px; }
+#settings .row.focus .chev { opacity: 0.8; }
+
+/* Frame mode */
+#frameclock {
+	position: absolute;
+	right: 64px;
+	bottom: 52px;
+	font-size: 46px;
+	font-weight: 300;
+	letter-spacing: -1px;
+	text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+	opacity: 0;
+	-webkit-transition: opacity 0.8s ease;
+}
+#credit {
+	position: absolute;
+	left: 64px;
+	bottom: 60px;
+	font-size: 15px;
+	opacity: 0;
+	text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+	-webkit-transition: opacity 0.8s ease;
+}
+.frame #ui { opacity: 0; }
+.frame #shade { opacity: 0.45; }
+.frame #frameclock { opacity: 0.92; }
+.frame #credit { opacity: 0.55; }
+
+/* Toast */
+#toast {
+	position: absolute;
+	left: 340px;
+	top: 664px;
+	width: 600px;
+	text-align: center;
+	font-size: 18px;
+	opacity: 0;
+	-webkit-transition: opacity 0.3s ease;
+}
+#toast.show { opacity: 0.85; }

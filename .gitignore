@@ -1,0 +1,9 @@
+config.json
+.venv/
+__pycache__/
+dist/
+brain/
+mac-app/models/
+mac-app/Jarvis.app/Contents/MacOS/
+mac-app/Jarvis.app/Contents/_CodeSignature/
+.DS_Store
