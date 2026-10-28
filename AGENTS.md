@@ -83,7 +83,7 @@ Read `docs/tv-guide.md`. In short:
   table. A Raspberry Pi or Chromecast showing a page from the Mac is usually the least effort:
   `widget/index.html` already runs in a normal browser via `/preview/`.
 
-Be honest with the person about which parts of the table you have **verified on their TV**. Only
+Tell the person which parts of the table you have **verified on their TV**. Only
 the 2012 Samsung row was tested by the author.
 
 ## Step 3: install

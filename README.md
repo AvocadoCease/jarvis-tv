@@ -93,7 +93,7 @@ Then:
 | `mac-app/` | Jarvis.app: dictation plus "ask JARVIS", in one Swift file |
 | `config.json` | Your settings (git-ignored) |
 
-## Honest limitations
+## Limitations
 
 - **macOS only** for the server and the app.
 - **The TV-side code is for one TV generation.** Other TVs need a new backend; `AGENTS.md` and
