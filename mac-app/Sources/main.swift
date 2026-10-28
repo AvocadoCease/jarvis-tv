@@ -210,11 +210,7 @@ func log(_ message: String) {
 // MARK: - Is the cursor in something we can type into?
 
 func focusedElementIsEditable() -> (editable: Bool, role: String) {
-    let system = AXUIElementCreateSystemWide()
-    var focused: AnyObject?
-    guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-          let element = focused else { return (false, "none") }
-    let el = element as! AXUIElement
+    guard let el = focusedElement() else { return (false, "none") }
     var roleValue: AnyObject?
     AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &roleValue)
     let role = roleValue as? String ?? "?"
@@ -284,11 +280,32 @@ func dismissEmojiPicker() -> Bool {
 
 // MARK: - Where you were typing when you started (to return there after the emoji picker)
 
+/// The focused UI element: asked of the whole system, then of the front app directly
+/// (Electron apps sometimes answer one and not the other).
 func focusedElement() -> AXUIElement? {
+    let front = NSWorkspace.shared.frontmostApplication
+    wakeAccessibility(of: front)
     var focused: AnyObject?
-    guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString,
-                                        &focused) == .success, let el = focused else { return nil }
-    return (el as! AXUIElement)
+    if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString,
+                                     &focused) == .success, let el = focused { return (el as! AXUIElement) }
+    if let front, AXUIElementCopyAttributeValue(AXUIElementCreateApplication(front.processIdentifier),
+                                                kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+       let el = focused { return (el as! AXUIElement) }
+    return nil
+}
+
+/// Electron/Chromium apps (T3 Code, Slack, VS Code...) don't build their accessibility tree until an
+/// assistive app asks, so their text boxes are invisible and dictation would fall back to the Copy
+/// popup. Other dictation apps ask; we must too. Native apps just ignore the attribute.
+var accessibilityWoken = Set<pid_t>()
+func wakeAccessibility(of app: NSRunningApplication?) {
+    guard let app, !accessibilityWoken.contains(app.processIdentifier) else { return }
+    let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
+                                              "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    if result == .success {
+        accessibilityWoken.insert(app.processIdentifier)
+        log("  accessibility woken for \(app.localizedName ?? "?")")
+    }
 }
 
 func isEditable(_ el: AXUIElement) -> Bool {
@@ -712,7 +729,13 @@ final class App: NSObject, NSApplicationDelegate {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         setIcon(recording: false)
         rebuildMenu()
-        log("Jarvis started")
+        log("Jarvis started (Accessibility trusted: \(AXIsProcessTrusted()))")
+        // Wake each app's accessibility as it comes to the front, so the first dictation into it pastes.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
+            wakeAccessibility(of: note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
+        }
+        wakeAccessibility(of: NSWorkspace.shared.frontmostApplication)
         takeOverFnKey()
         // `pkill`/logout send SIGTERM: give fn back before exiting
         signal(SIGTERM, SIG_IGN)
