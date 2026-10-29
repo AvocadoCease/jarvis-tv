@@ -5,6 +5,8 @@
 //   double-tap fn    hands-free: record until the next fn tap
 //   fn + any key     ignored (so fn+F1, fn+arrows etc. still work normally)
 //   hold Right Option  ask JARVIS (calendar, email, Jira, the TV...): it answers out loud
+//   double-tap Right Option  ask without holding: it listens until you pause
+//   after an answer  it keeps listening a few seconds, so you can just reply ("that's all" ends it)
 //
 // Needs: Microphone, Accessibility (to paste) and Input Monitoring (to see fn).
 
@@ -26,8 +28,24 @@ let jarvisServer = "http://127.0.0.1"
 let rightOptionKeyCode: Int64 = 61                 // kVK_RightOption
 let rightOptionMask: UInt64 = 0x40                 // NX_DEVICERALTKEYMASK
 let askMinHold: TimeInterval = 0.35                // shorter is a tap (or an Option+key combo)
-let ackDelay: TimeInterval = 1.4                   // say "one moment" if the answer isn't back by then
+let ackDelay: TimeInterval = 3.5                   // "one moment" only if nothing at all has been said by then
 let acknowledgements = ["One moment.", "Let me check.", "Just a moment.", "Checking now."]
+
+// Talking with JARVIS without holding the key
+let followUpWait: TimeInterval = 6                 // after an answer, how long to wait for a reply to start
+let handsFreeAskWait: TimeInterval = 8             // after a double-tap of Right Option
+let endOfSpeechPause: TimeInterval = 1.1           // this much quiet after you speak ends the question
+let maxQuestionSeconds: TimeInterval = 30
+let handsFreeMinPeak: Float = 0.02                 // a reply must be this loud: the TV across the room isn't you
+
+/// "That's all", "thanks, that's it", "goodbye"...: done talking to JARVIS for now.
+func isConversationEnd(_ text: String) -> Bool {
+    let t = text.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+    let pattern = #"^((ok(ay)?|no|nope|thanks|thank you|cheers|great|perfect)[ ,.!]*)*"#
+        + #"(that'?s (all|it|everything)|i'?m (done|good)|goodbye|bye|stop listening|never ?mind|nothing|no thanks|"#
+        + #"all good|thanks|thank you)([ ,.!]+(for now|thanks|thank you|jarvis))*$"#
+    return t.range(of: pattern, options: .regularExpression) != nil
+}
 
 // MARK: - Audio
 
@@ -366,32 +384,88 @@ func paste(_ text: String) {
 func jarvisURL(_ path: String, _ params: [String: String]) -> URL {
     var c = URLComponents(string: jarvisServer + path)!
     c.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+    c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")   // else "C++" arrives as "C  "
     return c.url!
+}
+
+/// What's in front of you, sent with a question so "what does this mean?" works anywhere:
+/// the app, its window title, and any selected text (never from a password field).
+func screenContext() -> [String: String] {
+    guard let front = NSWorkspace.shared.frontmostApplication else { return [:] }
+    var context = ["app": front.localizedName ?? ""]
+    let app = AXUIElementCreateApplication(front.processIdentifier)
+    var window: AnyObject?, title: AnyObject?
+    if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success, let window,
+       AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &title) == .success,
+       let title = title as? String, !title.isEmpty {
+        context["window"] = String(title.prefix(200))
+    }
+    if let el = focusedElement() {
+        var role: AnyObject?, subrole: AnyObject?, selected: AnyObject?
+        AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
+        AXUIElementCopyAttributeValue(el, kAXSubroleAttribute as CFString, &subrole)
+        let secret = (subrole as? String) == (kAXSecureTextFieldSubrole as String)
+        if !secret, AXUIElementCopyAttributeValue(el, kAXSelectedTextAttribute as CFString, &selected) == .success,
+           let text = (selected as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            context["selected"] = String(text.prefix(1500))
+        }
+    }
+    return context
 }
 
 final class Speaker: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var queue: [Data] = []
     private var cache: [String: Data] = [:]
+    private var generation = 0          // bumped by stop(), so audio still being fetched is dropped
+    private var texts: [String] = []    // sentences waiting for their voice clip, in order
+    private var fetchingNow = false     // one clip on its way (fetched while the one before plays)
     var onIdle: (() -> Void)?
 
     var speaking: Bool { player?.isPlaying ?? false }
+    /// Speaking, or about to: a clip is still on its way.
+    var busy: Bool { speaking || fetchingNow || !texts.isEmpty || !queue.isEmpty }
 
-    /// Fetch the voice for `text` (cached for short phrases) and play it after anything already playing.
+    /// Speak `text` after anything already playing. Streamed answers call this once per sentence,
+    /// as each arrives; they're spoken in that order, each fetched while the one before plays.
     func say(_ text: String) {
-        if let d = cache[text] { return enqueue(d) }
-        let url = jarvisURL("/api/tts", ["text": text, "from": "mac"])
-        URLSession.shared.dataTask(with: url) { data, response, _ in
-            guard let data, (response as? HTTPURLResponse)?.mimeType == "audio/mpeg" else { return }
+        texts.append(text)
+        pump()
+    }
+
+    private func pump() {
+        guard !fetchingNow else { return }
+        guard !texts.isEmpty else {
+            if !busy { onIdle?() }
+            return
+        }
+        let text = texts.removeFirst()
+        let gen = generation
+        fetchingNow = true
+        fetch(text) { data in
+            guard gen == self.generation else { return }   // stopped meanwhile
+            self.fetchingNow = false
+            if let data { self.enqueue(data) }
+            self.pump()
+        }
+    }
+
+    /// The voice for `text` (short phrases cached), on the main queue; nil if the server failed.
+    private func fetch(_ text: String, _ done: @escaping (Data?) -> Void) {
+        if let d = cache[text] { return done(d) }
+        URLSession.shared.dataTask(with: jarvisURL("/api/tts", ["text": text, "from": "mac"])) { data, response, _ in
+            let ok = data != nil && (response as? HTTPURLResponse)?.mimeType == "audio/mpeg"
             DispatchQueue.main.async {
-                if text.count < 40 { self.cache[text] = data }
-                self.enqueue(data)
+                if ok, let data, text.count < 40 { self.cache[text] = data }
+                done(ok ? data : nil)
             }
         }.resume()
     }
 
     /// Fetch short phrases ahead of time so they play instantly.
+    /// Called again every few minutes, so a change of voice on the server reaches the saved clips too.
     func preload(_ phrases: [String]) {
+        cache = cache.filter { phrases.contains($0.key) }   // drop other saved clips; they refill on use
         for text in phrases {
             URLSession.shared.dataTask(with: jarvisURL("/api/tts", ["text": text, "from": "mac"])) { data, _, _ in
                 if let data { DispatchQueue.main.async { self.cache[text] = data } }
@@ -405,13 +479,20 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
     }
 
     private func next() {
-        guard !queue.isEmpty else { player = nil; onIdle?(); return }
+        guard !queue.isEmpty else {
+            player = nil
+            if !fetchingNow && texts.isEmpty { onIdle?() }     // otherwise the next clip is still coming
+            return
+        }
         player = try? AVAudioPlayer(data: queue.removeFirst())
         player?.delegate = self
         if player?.play() != true { next() }
     }
 
     func stop() {
+        generation += 1
+        texts.removeAll()
+        fetchingNow = false
         queue.removeAll()
         player?.stop()
         player = nil
@@ -423,19 +504,40 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
 struct JarvisAnswer {
     let reply: String
     let details: String?   // set when JARVIS is asking "shall I?" about an action: exactly what it would do
+    let speak: String      // what's still to be said (streamed sentences were spoken as they came)
 }
 
-/// Send a question (or command) to JARVIS. Calls back with its answer on the main queue.
-func askJarvis(_ text: String, completion: @escaping (JarvisAnswer?) -> Void) {
-    var req = URLRequest(url: jarvisURL("/api/command", ["text": text, "from": "mac"]))
+/// Send a question (or command) to JARVIS, streamed (/api/ask). While it works, `onEvent` gets
+/// ("status", "Checking your calendar.") and ("say", each sentence as it's written); then `completion`
+/// gets the answer (nil if the server failed). Both on the main queue. Cancel the task to drop it.
+@discardableResult
+func askJarvis(_ text: String, screen: [String: String] = [:], onEvent: @escaping (String, String) -> Void,
+               completion: @escaping (JarvisAnswer?) -> Void) -> Task<Void, Never> {
+    var req = URLRequest(url: jarvisURL("/api/ask", screen.merging(["text": text, "from": "mac"]) { $1 }))
     req.timeoutInterval = 100
-    URLSession.shared.dataTask(with: req) { data, _, _ in
-        let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        let answer = (json?["reply"] as? String).map {
-            JarvisAnswer(reply: $0, details: json?["confirm"] as? Bool == true ? json?["details"] as? String : nil)
+    return Task {
+        var answer: JarvisAnswer?
+        do {
+            let (bytes, _) = try await URLSession.shared.bytes(for: req)
+            for try await line in bytes.lines {
+                guard let json = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                      let type = json["type"] as? String else { continue }
+                if type == "done" {
+                    let reply = json["reply"] as? String ?? ""
+                    answer = JarvisAnswer(reply: reply,
+                                          details: json["confirm"] as? Bool == true ? json["details"] as? String : nil,
+                                          speak: json["speak"] as? String ?? reply)
+                } else if let t = json["text"] as? String {
+                    await MainActor.run { onEvent(type, t) }
+                }
+            }
+        } catch {
+            log("  ask stream failed: \(error.localizedDescription)")
         }
-        DispatchQueue.main.async { completion(answer) }
-    }.resume()
+        if Task.isCancelled { return }
+        let result = answer
+        await MainActor.run { completion(result) }
+    }
 }
 
 // MARK: - On-screen indicator (a small dark pill with a live waveform)
@@ -715,6 +817,13 @@ final class App: NSObject, NSApplicationDelegate {
     var askCombo = false
     var asking = false          // this recording is a question, not dictation
     var askBusy = false         // waiting for Whisper or JARVIS
+    var lastAskTapAt = Date.distantPast
+    var conversing = false      // JARVIS just answered: listen for a reply once it stops speaking
+    var awaitingConfirm = false // its answer was "shall I?": "no" or "never mind" must reach it
+    var listeningHandsFree = false   // the mic is open waiting for you to speak (no key held)
+    var vadTimer: Timer?
+    var screen: [String: String] = [:]   // what was in front of you when you started asking
+    var followUpOn = UserDefaults.standard.object(forKey: "followUp") as? Bool ?? true
 
     /// Remember the text box you're in, before fn taps open the emoji picker.
     func captureTarget() {
@@ -750,8 +859,11 @@ final class App: NSObject, NSApplicationDelegate {
         if !CGPreflightListenEventAccess() { CGRequestListenEventAccess() }
         installTap()
         speaker.preload(acknowledgements)
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.speaker.preload(acknowledgements)
+        }
         startAnnouncements()
-        speaker.onIdle = { [weak self] in if self?.askBusy == false && self?.recorder.running == false { self?.bubble.hide() } }
+        speaker.onIdle = { [weak self] in self?.speakerIdle() }
     }
 
     var sigterm: DispatchSourceSignal?
@@ -763,7 +875,11 @@ final class App: NSObject, NSApplicationDelegate {
     func rebuildMenu() {
         let menu = NSMenu()
         menu.addItem(withTitle: "Hold fn to dictate · double-tap for hands-free", action: nil, keyEquivalent: "")
-        menu.addItem(withTitle: "Hold Right Option to ask JARVIS", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Hold Right Option to ask JARVIS · double-tap to just talk", action: nil, keyEquivalent: "")
+        let followUp = NSMenuItem(title: "Keep listening after answers", action: #selector(toggleFollowUp(_:)), keyEquivalent: "")
+        followUp.target = self
+        followUp.state = followUpOn ? .on : .off
+        menu.addItem(followUp)
         let privacy = NSMenuItem(title: "Privacy mode (TV)", action: #selector(togglePrivacy(_:)), keyEquivalent: "")
         privacy.target = self
         privacy.state = privacyOn ? .on : .off
@@ -791,6 +907,13 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     var privacyOn = false
+
+    @objc func toggleFollowUp(_ item: NSMenuItem) {
+        followUpOn.toggle()
+        UserDefaults.standard.set(followUpOn, forKey: "followUp")
+        if !followUpOn { conversing = false; endHandsFree() }
+        rebuildMenu()
+    }
 
     @objc func togglePrivacy(_ item: NSMenuItem) {
         let url = jarvisURL("/api/privacy", ["on": privacyOn ? "0" : "1"])
@@ -845,6 +968,11 @@ final class App: NSObject, NSApplicationDelegate {
         toast.show(text, seconds: max(10, Double(text.count) / 10))
         for item in items where item["speak"] as? Bool ?? true {
             if let t = item["text"] as? String { speaker.say(t) }
+        }
+        // News from the session JARVIS is following: listen for an answer ("tell it to go ahead")
+        if items.contains(where: { ($0["reply"] as? Bool ?? false) && ($0["speak"] as? Bool ?? true) }) {
+            conversing = followUpOn
+            awaitingConfirm = false
         }
         announceAfter = items.compactMap { $0["id"] as? Int }.max() ?? latest
     }
@@ -915,7 +1043,12 @@ final class App: NSObject, NSApplicationDelegate {
                     if self.asking { self.cancel() }
                     return
                 }
+                if key == escapeKeyCode && self.listeningHandsFree {
+                    self.endHandsFree()        // Esc: stop listening for a reply
+                    return
+                }
                 if key == escapeKeyCode && self.speaker.speaking {
+                    self.conversing = false
                     self.speaker.stop()
                     self.bubble.hide()
                     return
@@ -948,6 +1081,7 @@ final class App: NSObject, NSApplicationDelegate {
         fnPressedAt = Date()
         handsFreeStartedOnThisPress = false
         ignoringThisPress = false
+        if listeningHandsFree { endHandsFree() }           // waiting for a reply: dictation wins
         if asking || askBusy {                            // JARVIS has the mic: leave it alone
             ignoringThisPress = true
             return
@@ -1023,6 +1157,7 @@ final class App: NSObject, NSApplicationDelegate {
         askCombo = false
         askPressedAt = Date()
         speaker.stop()                                    // talking over JARVIS interrupts it
+        if listeningHandsFree { endHandsFree() }          // holding the key instead: push-to-talk as usual
         guard !askBusy, !busy, !recorder.running, !fnDown else { return }
         asking = true
         bubble.asking = true
@@ -1034,6 +1169,7 @@ final class App: NSObject, NSApplicationDelegate {
             asking = false
             return
         }
+        screen = screenContext()   // after the mic is on: some apps are slow to answer
         DispatchQueue.main.asyncAfter(deadline: .now() + askMinHold) {
             if self.asking && self.askDown && !self.askCombo && self.recorder.running { self.bubble.show(.listening) }
         }
@@ -1044,12 +1180,27 @@ final class App: NSObject, NSApplicationDelegate {
         askDown = false
         guard asking else { return }
         let held = Date().timeIntervalSince(askPressedAt)
-        if askCombo || held < askMinHold { asking = false; return cancel() }
+        if askCombo { asking = false; return cancel() }
+        if held < askMinHold {
+            if Date().timeIntervalSince(lastAskTapAt) < doubleTapWindow {   // double-tap: ask without holding
+                lastAskTapAt = .distantPast
+                log("ask: double-tap, listening hands-free")
+                return listenHandsFree(wait: handsFreeAskWait)
+            }
+            lastAskTapAt = Date()
+            asking = false
+            return cancel()
+        }
         let peak = recorder.peak
         let (wav, seconds) = recorder.stop()
         setIcon(recording: false)
+        submitQuestion(wav, seconds, peak, minPeak: minSpeechLevel)
+    }
+
+    /// A recorded question: transcribe it and ask JARVIS (or end the conversation on "that's all").
+    func submitQuestion(_ wav: Data, _ seconds: Double, _ peak: Float, minPeak: Float) {
         log(String(format: "ask: %.1fs audio, peak %.3f", seconds, peak))
-        guard seconds >= 0.4, peak >= minSpeechLevel else { asking = false; return bubble.hide() }
+        guard seconds >= 0.4, peak >= minPeak else { asking = false; conversing = false; bubble.asking = false; return bubble.hide() }
         askBusy = true
         bubble.show(.transcribing)
         transcribe(wav) { result in
@@ -1057,8 +1208,19 @@ final class App: NSObject, NSApplicationDelegate {
                 guard case .success(let text) = result, !text.isEmpty, !isHallucination(text, seconds: seconds) else {
                     self.askBusy = false
                     self.asking = false
+                    self.conversing = false
+                    self.bubble.asking = false
                     self.bubble.hide()
                     if case .failure = result { NSSound.beep() }
+                    return
+                }
+                if !self.awaitingConfirm && isConversationEnd(text) {
+                    log("  ask -> \"\(text.prefix(40))\": that's all, conversation over")
+                    self.askBusy = false
+                    self.asking = false
+                    self.conversing = false
+                    self.bubble.asking = false
+                    self.bubble.hide()
                     return
                 }
                 self.sendQuestion(text)
@@ -1069,31 +1231,124 @@ final class App: NSObject, NSApplicationDelegate {
     func sendQuestion(_ text: String) {
         log("  ask -> \"\(text.prefix(80))\"")
         bubble.show(.thinking)
-        var answered = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + ackDelay) {
-            if !answered { self.speaker.say(acknowledgements.randomElement()!) }
+        conversing = false
+        var spoke = false   // said anything yet: what it's doing ("Checking your calendar."), or the answer
+        DispatchQueue.main.asyncAfter(deadline: .now() + ackDelay) {   // still nothing at all: a stock line
+            if !spoke && self.askBusy {
+                spoke = true
+                self.speaker.say(acknowledgements.randomElement()!)
+            }
         }
-        askJarvis(text) { answer in
-            answered = true
+        if let app = screen["app"] { log("  screen: \(app)\(screen["selected"] != nil ? " (with selected text)" : "")") }
+        askJarvis(text, screen: screen, onEvent: { type, line in
+            if type == "status" {
+                log("  status: \(line)")
+                if !spoke { spoke = true; self.speaker.say(line) }
+            } else if type == "say" {
+                if !self.speaker.busy { self.bubble.hide() }
+                spoke = true
+                self.speaker.say(line)
+            }
+        }, completion: { answer in
+            spoke = true
             self.askBusy = false
             self.asking = false
             self.bubble.asking = false
-            guard let answer, !answer.reply.isEmpty else {
+            guard let answer, !(answer.reply.isEmpty && answer.speak.isEmpty) else {
                 self.bubble.hide()
+                self.conversing = false
                 self.toast.show("JARVIS isn't answering. Is the JARVIS server running?")
                 return
             }
             let reply = answer.reply
             log("  reply <- \"\(reply.prefix(80))\"")
             self.bubble.hide()
+            self.awaitingConfirm = answer.details != nil
             if let details = answer.details {   // an action: show exactly what will happen, until it's answered
-                self.toast.show("\(reply)\n\n\(details)\n\nHold Right Option and say \u{201C}go ahead\u{201D} to do it, or \u{201C}cancel\u{201D}.",
+                self.toast.show("\(reply)\n\n\(details)\n\nSay \u{201C}go ahead\u{201D} to do it, or \u{201C}cancel\u{201D}.",
                                 seconds: 90)
             } else {
                 self.toast.show(reply, seconds: max(8, Double(reply.count) / 12))
             }
-            self.speaker.say(reply)
+            self.conversing = self.followUpOn
+            if !answer.speak.isEmpty { self.speaker.say(answer.speak) } else if !self.speaker.busy { self.speakerIdle() }
+        })
+    }
+
+    /// JARVIS stopped talking. If it just answered you, listen a moment for a reply.
+    func speakerIdle() {
+        guard !askBusy, !recorder.running else { return }
+        bubble.hide()
+        guard conversing, followUpOn else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {   // let the last word die away first
+            guard self.conversing, !self.speaker.busy, !self.askBusy, !self.recorder.running,
+                  !self.busy, !self.fnDown, !self.askDown else { return }
+            self.listenHandsFree(wait: followUpWait, minPeak: handsFreeMinPeak)
         }
+    }
+
+    /// Listen with no key held, for a reply or after a double-tap: ends itself when you pause,
+    /// or after `wait` if you don't start speaking.
+    func listenHandsFree(wait: TimeInterval, minPeak: Float = minSpeechLevel) {
+        if !recorder.running {
+            do { try recorder.start() } catch {
+                log("  mic failed to start: \(error)")
+                conversing = false
+                return
+            }
+        }
+        asking = true
+        bubble.asking = true
+        listeningHandsFree = true
+        screen = screenContext()
+        setIcon(recording: true)
+        bubble.show(.listening)
+        let started = Date()
+        var room: Float = 0, roomTicks: Float = 0, loudTicks = 0
+        var speaking = false, lastLoud = started
+        vadTimer?.invalidate()
+        vadTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            guard let self, self.listeningHandsFree, self.recorder.running else { return timer.invalidate() }
+            let level = self.recorder.level, now = Date()
+            if now.timeIntervalSince(started) < 0.25 { room += level; roomTicks += 1; return }   // the room's own hum
+            let noise = min(roomTicks > 0 ? room / roomTicks : 0, 0.01)   // capped: you may have started straight away
+            if !speaking {
+                loudTicks = level > max(0.012, noise * 3) ? loudTicks + 1 : 0
+                if loudTicks >= 3 {
+                    speaking = true
+                    lastLoud = now
+                    log(String(format: "  hands-free: speech started (room %.4f)", noise))
+                } else if now.timeIntervalSince(started) > wait {
+                    log("  hands-free: nothing said")
+                    self.endHandsFree()
+                }
+                return
+            }
+            if level > max(0.006, noise * 2) { lastLoud = now }
+            guard now.timeIntervalSince(lastLoud) > endOfSpeechPause
+                    || now.timeIntervalSince(started) > maxQuestionSeconds else { return }
+            timer.invalidate()
+            self.vadTimer = nil
+            self.listeningHandsFree = false
+            let peak = self.recorder.peak
+            let (wav, seconds) = self.recorder.stop()
+            self.setIcon(recording: false)
+            self.submitQuestion(wav, seconds, peak, minPeak: minPeak)
+        }
+    }
+
+    /// Stop waiting for you to speak; the conversation is over until the next question.
+    func endHandsFree() {
+        vadTimer?.invalidate()
+        vadTimer = nil
+        conversing = false
+        guard listeningHandsFree else { return }
+        listeningHandsFree = false
+        if recorder.running { _ = recorder.stop() }
+        asking = false
+        bubble.asking = false
+        setIcon(recording: false)
+        bubble.hide()
     }
 
     func startRecording() {

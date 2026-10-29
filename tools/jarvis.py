@@ -214,6 +214,8 @@ def _wants_brain(raw, t):
     """A question about the world/work (calendar, email, Jira...) rather than a home command."""
     if re.search(DEVICE_WORDS, raw.lower()):
         return False
+    if re.search(r"\b(follow|following|session|sessions|t3)\b", t):   # "stop following it" isn't the TV's stop key
+        return True
     return bool(re.search(QUESTION, t)) or len(t.split()) > 6
 
 
@@ -227,17 +229,18 @@ def _answer_card(question, reply, source):
     _briefing.update(id=_briefing["id"] + 1, at=time.time(), title=title, lines=lines[:8])
 
 
-def _ask_brain(raw, source):
-    answer = brain.ask(raw, source=source)
+def _ask_brain(raw, source, emit=None, screen=None):
+    answer = brain.ask(raw, source=source, emit=emit, screen=screen)
+    speak = {"speak": answer["speak"]} if "speak" in answer else {}
     if answer.get("confirm"):  # an action waiting for a yes: show exactly what it will do
         if source != "mac":
             _briefing.update(id=_briefing["id"] + 1, at=time.time(), title="SAY YES TO CONFIRM",
                              lines=[answer["reply"]] + answer["details"].split("\n")[:6])
         return {"ok": True, "reply": answer["reply"], "did": ["brain"], "confirm": True,
-                "details": answer["details"], "seconds": answer.get("seconds")}
+                "details": answer["details"], "seconds": answer.get("seconds"), **speak}
     if answer["ok"]:
         _answer_card(raw, answer["reply"], source)
-    return {"ok": answer["ok"], "reply": answer["reply"], "did": ["brain"], "seconds": answer.get("seconds")}
+    return {"ok": answer["ok"], "reply": answer["reply"], "did": ["brain"], "seconds": answer.get("seconds"), **speak}
 
 
 def _keys(names):
@@ -245,22 +248,34 @@ def _keys(names):
     return names
 
 
-def handle(text, server, source="remote"):
+NO_MATCH = {"ok": False, "reply": "", "no_match": True}
+
+
+def handle(text, server, source="remote", emit=None, rules_only=False, screen=None):
     """Run one command or answer a question.
 
     `server` is this Mac's base URL as the TV sees it; `source` is where it was asked
-    ("mac", "remote", "tv"), which decides where the answer is shown.
+    ("mac", "remote", "tv"), which decides where the answer is shown. `emit` streams the brain's
+    answer (see brain.ask). `rules_only`: only the instant TV/Xbox commands, never the brain
+    (the brain's own home_command tool comes in this way); NO_MATCH if none fits. `screen`: what's in
+    front of the user on the Mac (see brain._screen_note).
     """
     raw = (text or "").strip()
     t = raw.lower()
     t = re.sub(r"^(hey |ok |okay )?jarvis[,.!]?\s*", "", t)
-    t = re.sub(r"\b(please|could you|can you|would you|the tv's|the tv|tv's)\b", " ", t)
-    t = re.sub(r"\s+", " ", t).strip(" .!?")
+    t = re.sub(r"\b(please|could you|can you|would you|thanks|thank you|cheers|the tv's|the tv|tv's)\b", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .!?,")
     if not t:
-        return {"ok": False, "reply": f"Yes, {USER_NAME}? What can I do for you?"}
+        return NO_MATCH if rules_only else {"ok": False, "reply": f"Yes, {USER_NAME}? What can I do for you?"}
 
-    if brain.pending():  # "yes", "no" or a change to the action JARVIS just asked about
-        return _ask_brain(raw, source)
+    if brain.pending() and not rules_only:  # "yes", "no" or a change to the action JARVIS just asked about
+        # ...or the user moved on to a TV/Xbox command ("start FIFA on the Xbox"): do that, drop the question
+        if brain._decision(raw) == "other" and re.search(DEVICE_WORDS, raw.lower()):
+            done = handle(raw, server, source, rules_only=True)
+            if not done.get("no_match"):
+                brain.drop_pending(raw)
+                return done
+        return _ask_brain(raw, source, emit, screen)
 
     reply, did = None, None
     short = len(t.split()) <= 4  # bare navigation words ("up", "go back") only count in short commands
@@ -271,6 +286,12 @@ def handle(text, server, source="remote"):
             return {"ok": True, "did": ["privacy"], "reply": (
                 "Privacy mode on. I won't read messages out on the TV." if on else
                 "Privacy mode off. I'll read messages on the TV again.")}
+        if re.search(r"\b(start (afresh|fresh|over)|fresh start|clean slate|(start a )?new conversation|"
+                     r"forget (everything|what i (said|asked)|our conversation|this conversation))\b", t):
+            if rules_only:
+                return NO_MATCH
+            brain.forget()
+            return {"ok": True, "did": ["forget"], "reply": "Very well. A clean slate."}
         if (re.search(r"\bannouncements?\b", t) and re.search(r"\b(on|off|enable|disable|stop|start|mute|resume|pause)\b", t)
                 or re.search(r"\bdo not disturb\b|\bdon'?t disturb me\b|\bquiet mode\b", t)):
             on = bool(re.search(r"\b(on|enable|start|resume|back)\b", t)) and not re.search(r"\bdo not disturb\b|\bdon'?t disturb\b|\bquiet\b", t)
@@ -292,7 +313,7 @@ def handle(text, server, source="remote"):
         elif re.search(r"\bweather\b|\btemperature\b|\bhow (hot|cold|warm) is it\b|\bwill it rain\b|\bis it (going to )?rain", t):
             reply, did = briefing.weather_line(briefing.weather()), []
         elif _wants_brain(raw, t):
-            return _ask_brain(raw, source)
+            return NO_MATCH if rules_only else _ask_brain(raw, source, emit, screen)
         elif re.search(r"\b(turn|switch|power|shut) (off|down) (the |my )?xbox\b|\b(turn|switch|power) (the |my )?xbox off\b", t):
             if not _cloud():
                 return {"ok": False, "reply": "I can't turn the Xbox off until it's linked. Open localhost slash setup slash xbox on the Mac."}
@@ -414,8 +435,8 @@ def handle(text, server, source="remote"):
             reply = (f"All systems online. The TV is at {ip}." if ip else
                      "I can't reach the TV right now. It may be switched off.")
             did = []
-        else:
-            return _ask_brain(raw, source)  # not a home command: let the brain have a go
+        else:   # not a home command: let the brain have a go
+            return NO_MATCH if rules_only else _ask_brain(raw, source, emit, screen)
     except Exception as e:  # TV off, pairing refused, network hiccup
         return {"ok": False, "reply": f"I couldn't do that: {e}."}
 

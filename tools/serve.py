@@ -14,7 +14,11 @@ Routes:
   /api/status        {"tv": ip|null, "casting": bool}
   /api/key?k=KEY_X   press remote buttons (comma-separated)
   /api/command?text=&from=  run a JARVIS command or ask a question (see jarvis.py, brain.py);
-                     from = mac | remote | tv decides where the answer is shown
+                     from = mac | remote | tv decides where the answer is shown; rules=1: TV/Xbox commands only
+  /api/ask?text=&from=  the same, streamed as JSON lines while JARVIS works: {"type": "status"|"say", "text"},
+                     then {"type": "done", ...the /api/command answer, "speak": what's still to be said}.
+                     From this Mac, &app=&window=&selected= say what's on screen
+  /api/follow        (Mac only) the T3 session JARVIS follows: ?thread=&title= to follow, ?stop=1 to stop
   /api/privacy?on=1|0  privacy mode: no email/message contents on the TV
   /api/announce?after=N  new announcements for the Mac to say (see announce.py); ?on=1|0 turns them on/off; ?test=text (Mac only) queues one
   /cast/photo.jpg    the last photo JARVIS put on the TV
@@ -28,6 +32,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from urllib.parse import parse_qs, urlparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -204,7 +209,44 @@ button{{margin-top:22px;width:100%;height:46px;background:#18e0ff;color:#00141a;
             return
         super().do_GET()
 
+    def ask_stream(self, q):
+        """/api/ask: answer like /api/command, sending each sentence as soon as it's written."""
+        source = self.source(q)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.end_headers()
+        lock = threading.Lock()
+        gone = []
+
+        def line(obj):
+            if gone:
+                return
+            try:
+                with lock:
+                    self.wfile.write((json.dumps(obj) + "\n").encode())
+                    self.wfile.flush()
+            except OSError:   # the Mac hung up (you cut in); the answer carries on unheard
+                gone.append(True)
+
+        screen = {k: q.get(k, [""])[0][:2000] for k in ("app", "window", "selected")} if source == "mac" else None
+        try:
+            result = jarvis.handle(q.get("text", [""])[0][:500], "http://" + (tvcontrol.my_ip() or "127.0.0.1"),
+                                   source=source, emit=lambda kind, text: line({"type": kind, "text": text}),
+                                   screen=screen)
+        except Exception as e:
+            result = {"ok": False, "reply": f"I couldn't do that: {e}."}
+        line(dict(result, type="done", speak=result.get("speak", result.get("reply", ""))))
+
+    def source(self, q):
+        source = q.get("from", ["remote"])[0]
+        source = source if source in ("mac", "remote", "tv") else "remote"
+        if source == "mac" and not self.from_this_mac():   # "mac" unlocks the computer: it must be this Mac
+            source = "remote"
+        return source
+
     def api(self, route, q):
+        if route == "/api/ask":
+            return self.ask_stream(q)
         try:
             if route == "/api/status":
                 self.send_json({"tv": tvcontrol.find(), "casting": tvcontrol.casting(),
@@ -220,9 +262,19 @@ button{{margin-top:22px;width:100%;height:46px;background:#18e0ff;color:#00141a;
                 self.send_json({"events": jarvis.events()})
             elif route == "/api/command":
                 server = "http://" + (tvcontrol.my_ip() or "127.0.0.1")
-                source = q.get("from", ["remote"])[0]
-                source = source if source in ("mac", "remote", "tv") else "remote"
-                self.send_json(jarvis.handle(q.get("text", [""])[0][:500], server, source=source))
+                rules_only = q.get("rules", [""])[0] == "1"
+                self.send_json(jarvis.handle(q.get("text", [""])[0][:500], server, source=self.source(q),
+                                             rules_only=rules_only))
+            elif route == "/api/follow":
+                if not self.from_this_mac():
+                    self.send_json({"ok": False, "error": "Mac only"})
+                elif "stop" in q:
+                    self.send_json({"ok": True, "was": announce.unfollow()})
+                elif q.get("thread", [""])[0]:
+                    announce.follow(q["thread"][0], q.get("title", [""])[0][:200])
+                    self.send_json({"ok": True, "following": announce.following()})
+                else:
+                    self.send_json({"ok": True, "following": announce.following()})
             elif route == "/api/announce":
                 if "on" in q:
                     brain.set_setting("announce", q["on"][0] in ("1", "true", "on"))
@@ -265,5 +317,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
     print(f"Lounge server on http://{args.host}:{args.port}/preview/", flush=True)
     brain.warm_up()  # start Claude now so the first question is quick
+    # and have the voice ready for what JARVIS says while it works
+    threading.Thread(target=lambda: [voice.synth(p) for p in brain.STATUS_PHRASES + ["Shall I go ahead?"]],
+                     daemon=True).start()
     announce.start()
     Server((args.host, args.port), Handler).serve_forever()

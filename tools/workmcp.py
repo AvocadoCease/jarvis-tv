@@ -11,7 +11,11 @@ Tools:
 With --actions it is "jarvis-actions" instead, for JARVIS's brain only (see brain.py):
   start_session(project, message)  start a new T3 session (via the `t3` CLI)
   message_session(session, message) send a message to an existing session
-JARVIS asks the user to say "yes" before either runs; this server doesn't check that itself.
+  home_command(command)            control the TV or Xbox ("open FIFA on the Xbox"), via JARVIS's own commands
+  follow_session(session)          JARVIS stays with this session: says when it finishes or needs you
+  stop_following()                 ...and stops (starting or messaging a session follows it too)
+JARVIS asks the user to say "yes" before the session tools run (and before switching anything off); this server
+doesn't check that itself.
 
 Speaks MCP over stdio (newline-delimited JSON-RPC), no dependencies.
   python3 tools/workmcp.py --test   prints the overview, for checking by hand
@@ -23,6 +27,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 
 import settings
@@ -298,7 +304,10 @@ def start_session(project, message, title=None):
         info = json.loads(out)
     except ValueError:
         info = {"output": out[:300]}
-    return {"started": True, "project": p["title"], "thread": info}
+    thread = info.get("thread") if isinstance(info.get("thread"), dict) else info
+    thread_id = thread.get("threadId") or thread.get("id")
+    followed = bool(thread_id) and _follow_quietly(thread_id, title or thread.get("title") or message.strip()[:60])
+    return {"started": True, "project": p["title"], "thread": info, "following": followed}
 
 
 def message_session(session, message):
@@ -307,8 +316,57 @@ def message_session(session, message):
     if not t:
         return {"error": f"No session matching {session!r}. Try search_sessions."}
     _t3("thread", "send", t["thread_id"], message.strip())
-    return {"sent": True, "session": t["title"],
+    followed = _follow_quietly(t["thread_id"], t["title"])
+    return {"sent": True, "session": t["title"], "following": followed,
             "note": "A busy session gets it as its next turn; nothing was interrupted."}
+
+
+def most_recent_session():
+    """Title of the top-level session with the latest activity (likely the one open in T3)."""
+    with _db() as con:
+        rows = _top_level_threads(con)
+    return rows[0]["title"] if rows else None
+
+
+def _server(path, **params):
+    url = f"http://127.0.0.1{path}?" + urllib.parse.urlencode(params)
+    with urllib.request.urlopen(url, timeout=30) as r:
+        return json.load(r)
+
+
+def follow_session(session):
+    with _db() as con:
+        t = _find(con, session)
+        if not t:
+            return {"error": f"No session matching {session!r}. Try search_sessions."}
+        _, status = _state(con, t["thread_id"])
+    _server("/api/follow", thread=t["thread_id"], title=t["title"])
+    return {"following": t["title"], "status": status,
+            "note": "JARVIS now says out loud when this session finishes, fails or needs you."}
+
+
+def stop_following():
+    was = _server("/api/follow", stop="1").get("was")
+    return {"stopped": True, "was_following": was}
+
+
+def _follow_quietly(thread_id, title):
+    try:
+        _server("/api/follow", thread=thread_id, title=title)
+        return True
+    except OSError:
+        return False
+
+
+def home_command(command):
+    """Run one of JARVIS's instant TV/Xbox commands through the Lounge server (never back into the brain)."""
+    url = "http://127.0.0.1/api/command?" + urllib.parse.urlencode({"text": command, "from": "mac", "rules": "1"})
+    with urllib.request.urlopen(url, timeout=30) as r:
+        out = json.load(r)
+    if out.get("no_match"):
+        return {"done": False, "note": "That isn't a TV or Xbox command JARVIS knows. Try a simpler wording, e.g. "
+                                       "'open FIFA on the Xbox', 'switch to the Xbox', 'volume to 20'."}
+    return {"done": bool(out.get("ok")), "result": out.get("reply", "")}
 
 
 ACTION_TOOLS = [
@@ -327,9 +385,22 @@ ACTION_TOOLS = [
                     "it gets the message as its next turn.",
      "inputSchema": {"type": "object", "properties": {"session": {"type": "string"}, "message": {"type": "string"}},
                      "required": ["session", "message"]}},
+    {"name": "follow_session",
+     "description": "Stay with one T3 Code session (found by part of its title): JARVIS then says out loud when it "
+                    "finishes, fails or needs the user, with a short summary of its reply.",
+     "inputSchema": {"type": "object", "properties": {"session": {"type": "string"}}, "required": ["session"]}},
+    {"name": "stop_following",
+     "description": "Stop following the T3 session JARVIS is following.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "home_command",
+     "description": "Control the living-room TV or the Xbox with one plain command, the way the user would say it: "
+                    "'open FIFA on the Xbox', 'switch to the Xbox', 'Xbox home', 'turn on the Xbox', 'volume to 20', "
+                    "'mute', 'HDMI 2', 'what's the volume'. Returns what happened.",
+     "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
 ]
 ACTION_HANDLERS = {"list_projects": list_projects, "start_session": start_session,
-                   "message_session": message_session}
+                   "message_session": message_session, "home_command": home_command,
+                   "follow_session": follow_session, "stop_following": stop_following}
 
 TOOLS = [
     {"name": "work_overview",

@@ -26,13 +26,19 @@ different on older and newer TVs.
     API keys to manage.
 - **Three ways to talk to it:**
   - **Phone remote:** open `http://<your-mac>/remote` and tap the reactor to speak.
-  - **Mac app:** hold **Right Option** to ask JARVIS. Hold or double-tap **fn** to dictate into
-    any app; speech-to-text is local Whisper, which also replaces paid dictation apps.
+  - **Mac app:** hold **Right Option** to ask JARVIS, or double-tap it and just talk. It answers
+    sentence by sentence as Claude writes, and then listens for a few seconds so you can reply
+    without pressing anything. Say "that's all" to end the conversation. It also sees the app you're
+    in and any selected text, so "what does this mean?" works anywhere. Hold or double-tap **fn** to
+    dictate into any app; speech-to-text is local Whisper, which also replaces paid dictation apps.
   - **The TV itself:** a JARVIS home screen with live stats, answer cards and a morning-style
     briefing (time, weather, devices).
 - **It speaks up:** meeting reminders five minutes before, and (if you use
   T3 Code) when a coding session finishes or needs you. Say "do not disturb"
-  to stop it.
+  to stop it. Say "follow the scraper session" and JARVIS stays with that session: when it
+  finishes or needs you, it tells you what it said in a sentence or two and waits for your reply.
+- **It remembers the day:** follow-ups work all day, even after a restart. Say "start fresh" to
+  clear the conversation.
 - **Privacy mode:** say "guests are here" and it stops putting email and message contents on the
   TV.
 

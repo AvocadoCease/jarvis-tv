@@ -16,12 +16,22 @@ per-TV details you'll need in step 2.
   and can take actions, but only after a spoken confirmation.
 - **Three ways in:**
   - `remote/index.html` is a phone remote with a voice button, at `http://<mac-ip>/remote`.
-  - `mac-app/` is a menu-bar app. Hold Right Option to ask JARVIS; hold or double-tap fn to dictate
-    into any app. Speech-to-text is local Whisper.
+  - `mac-app/` is a menu-bar app. Hold Right Option to ask JARVIS, or double-tap it to talk without
+    holding. Hold or double-tap fn to dictate into any app. Speech-to-text is local Whisper.
+    - The app asks `/api/ask`, which streams a status ("Checking your calendar.") and then each
+      sentence as Claude writes it. It also sends the front app, window title and selected text.
+    - After an answer it listens for about 6 seconds for a reply. "That's all" or Esc ends it; the
+      menu item "Keep listening after answers" turns it off.
   - The TV app `widget/` shows a JARVIS home screen, answer cards and briefings.
 - **Optional extras:**
   - `xboxlocal.py` / `xboxcloud.py` for Xbox wake and control.
   - `workmcp.py` and `announce.py` for T3 Code session awareness and spoken announcements.
+    "Follow the X session" (or starting or messaging one through JARVIS) makes JARVIS announce that
+    session's results with a short summary, written by a small fast model (`brain.summarise`).
+- **The brain controls the TV and Xbox** through `home_command` in `workmcp.py --actions`. That calls
+  `/api/command?rules=1`, which runs only the instant commands in `jarvis.py` and never goes back to
+  the brain. Switching anything off still needs a "go ahead". If a "Shall I...?" is waiting and you
+  give a TV or Xbox command instead, the command runs and the question is dropped.
   - `briefing.py`, `voice.py` (`say` plus an ffmpeg filter) and `macstats.py`.
 
 **What was built and tested:** a 2012 Samsung UA46ES7500 (Orsay platform) with an Xbox Series S
@@ -186,7 +196,8 @@ cp config.example.json config.json   # then fill it in WITH the person: name, pl
 | Your settings | `config.json` (from `config.example.json`), loaded by `tools/settings.py` |
 | Server control | `./jarvis status|restart|log|stop|start` |
 | Logs | `~/Library/Logs/jarvis-tv/` (server, whisper); `~/Library/Logs/Dictate/jarvis-app.log` (Mac app) |
-| Brain state (privacy, announcements on/off) | `~/.config/lounge/brain.json` |
+| Brain state (privacy, announcements on/off, the followed session) | `~/.config/lounge/brain.json` |
+| Today's conversation (cleared at 4 am or by "start fresh") | `~/.config/lounge/conversation.json` |
 | Dictation spellings / history | `~/.config/jarvis/replacements.json`, `~/.config/jarvis/history.txt` |
 | Rebuild the Mac app | `mac-app/build.sh` |
 | Rebuild the TV app | `.venv/bin/python tools/build.py --host <mac-ip>`, then User App Sync on the TV |

@@ -7,6 +7,10 @@ Announcements queue up for the Mac: Jarvis.app polls /api/announce, shows each o
 Stays quiet when announcements are off ("do not disturb"), between 23:00 and 07:00, and about
 finished sessions while you're looking at T3. In a meeting, news is shown but not spoken.
 
+The session JARVIS is following (follow(), see workmcp's follow_session) is different: any finished run,
+failure or question is told with a spoken summary of the agent's reply, at any hour and even while you're
+in T3, and the Mac listens for your answer afterwards ("reply": True).
+
   python3 tools/announce.py   prints what it sees now (sessions, calendar), for checking by hand
 """
 import json
@@ -46,9 +50,9 @@ def _quiet_hours():
     return hour >= 23 or hour < 7
 
 
-def _push(text, spoken=True):
+def _push(text, spoken=True, reply=False):
     with _lock:
-        _items.append({"id": _next_id[0], "text": text, "speak": spoken, "at": time.time()})
+        _items.append({"id": _next_id[0], "text": text, "speak": spoken, "reply": reply, "at": time.time()})
         _next_id[0] += 1
         del _items[:-20]
     brain.note_announcement(text)
@@ -113,19 +117,82 @@ def _join(names):
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def _changes(old, new):
-    needs, finished, failed = [], [], []
+def _changes(old, new, followed=None):
+    needs, finished, failed, mine = [], [], [], []
     for tid, s in new.items():
         before = old.get(tid) or {"run": None, "status": None, "pending": {}}
+        changed = s["run"] != before["run"] or s["status"] != before["status"]
+        if tid == followed:   # told separately, in full (see _tell_followed)
+            if set(s["pending"]) - set(before["pending"]):
+                mine.append(("needs", tid, s))
+            elif changed and s["status"] in ("completed", "failed"):
+                mine.append((s["status"], tid, s))
+            continue
         if set(s["pending"]) - set(before["pending"]):
             needs.append((s["title"], set(s["pending"].values())))
-        changed = s["run"] != before["run"] or s["status"] != before["status"]
         if changed and s["status"] in ("completed", "failed") and _seconds(s["asked"], s["done"]) >= MIN_RUN_SECONDS:
             (finished if s["status"] == "completed" else failed).append(s["title"])
-    return needs, finished, failed
+    return needs, finished, failed, mine
 
 
-def _announce_sessions(needs, finished, failed):
+# ---- the session JARVIS is following ----------------------------------------------------------
+
+def following():
+    f = brain.setting("following")
+    return f if isinstance(f, dict) and f.get("thread") else None
+
+
+def follow(thread, title):
+    brain.set_setting("following", {"thread": thread, "title": title, "since": time.time()})
+    print(f"ANNOUNCE following: {title}", flush=True)
+
+
+def unfollow():
+    was = following()
+    brain.set_setting("following", None)
+    print(f"ANNOUNCE stopped following: {was and was['title']}", flush=True)
+    return was and was["title"]
+
+
+def _tell_followed(kind, tid, s):
+    """The followed session finished, failed or needs the user: say so, with a summary of what it said."""
+    if not enabled():
+        return
+    with workmcp._db() as con:
+        reply = workmcp._last_message(con, tid, "assistant", s["run"])
+    summary = brain.summarise(reply) if reply else ""
+    name = _name(s["title"])
+    if kind == "needs":
+        kinds = set(s["pending"].values())
+        what = "has a question for you" if kinds & {"user_input", "question"} else "needs your approval in T3"
+        text = f"{brain.USER_NAME}, the {name} session {what}."
+    elif kind == "failed":
+        text = f"The {name} session failed."
+    else:
+        text = f"The {name} session is done."
+    _push(f"{text} {summary}".strip(), spoken=not _in_meeting(), reply=True)
+
+
+def follow_context():
+    """For the brain: which session "it" is."""
+    f = following()
+    if not f:
+        return ""
+    try:
+        with workmcp._db() as con:
+            _, status = workmcp._state(con, f["thread"])
+            last = workmcp._last_message(con, f["thread"], "assistant")
+    except Exception:
+        status, last = "unknown", ""
+    return (f"You're following the T3 session \u201c{f['title']}\u201d ({status}). Unless {brain.USER_NAME} names "
+            "another session, \"it\", \"the session\" or \"tell it...\" mean this one (use its exact title with "
+            "message_session)." + (f" Its latest message ends: \u201c{workmcp._clip(last, 500, keep_end=True)}\u201d"
+                                   if last else ""))
+
+
+def _announce_sessions(needs, finished, failed, mine=()):
+    for kind, tid, s in mine:   # the summary takes a few seconds: don't hold up the watcher
+        threading.Thread(target=_tell_followed, args=(kind, tid, s), daemon=True).start()
     if not (needs or finished or failed) or not enabled() or _quiet_hours():
         return
     if _looking_at_t3():
@@ -247,6 +314,7 @@ def start():
     """Run the watchers in the background. Call once at server start."""
     _load_calendar()
     brain.context.append(calendar_context)
+    brain.context.append(follow_context)
     brain.after_action.append(lambda tool: "Google_Calendar" in tool and refresh_calendar())
 
     def sessions():
@@ -255,7 +323,8 @@ def start():
             try:
                 snap = _snapshot()
                 if prev is not None:
-                    _announce_sessions(*_changes(prev, snap))
+                    f = following()
+                    _announce_sessions(*_changes(prev, snap, f and f["thread"]))
                 prev = snap
             except Exception as e:
                 print("ANNOUNCE sessions error:", repr(e)[:200], flush=True)
